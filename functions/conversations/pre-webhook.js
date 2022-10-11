@@ -12,8 +12,8 @@ exports.handler = async function(context, event, callback) {
     switch (event.EventType) {
       case 'onMessageAdd': {
         //response = {body: `${event.Author}: ${event.Body}`}
-        response.setBody({body: `${event.Author}: ${event.Body}`});
         response.setStatusCode(200);
+        response.setBody({body: `${event.Author}: ${event.Body}`});
         console.log(`onMessageAdd: ${JSON.stringify(response, null, 2)}`);
         break;
       }
