@@ -8,8 +8,8 @@ exports.handler = async function(context, event, callback) {
 
   const twiml = new Twilio.twiml.MessagingResponse();
 
-  if(!event.WaId && !event.To.startsWith('messenger:')) {
-    console.log('Not a WhatsApp message');
+  if(!event.To.startsWith('whatsapp:') && !event.To.startsWith('messenger:')) {
+    console.log('Not a WhatsApp of Messenger message');
     
     twiml.message('This is not a WhatsApp message');
     const message = twiml.message(`Echoing: ${event.Body}`);
@@ -48,6 +48,7 @@ exports.handler = async function(context, event, callback) {
       }
       case 'content_api': {
         const templateFriendlyName = commandAndBody[2];
+        // Need to send Content API messages via Messaging API as oppose to TwiML as TwiML does not support Content SID
         const message = await sendContentAPIMessage(templateFriendlyName, context, event);
         twiml.message(message);
         break;
@@ -69,24 +70,33 @@ exports.handler = async function(context, event, callback) {
 /// Fetch Content API Templates
 async function getContentAPITemplates(context, event) {
 
+  const client = context.getTwilioClient();
+
   const accountSID = context.ACCOUNT_SID;
   const authToken = context.AUTH_TOKEN;
   const contentAPIUrl = 'https://content.twilio.com/v1/Content';
 
+
   try {
-    const result = await axios.get(contentAPIUrl, {
-      headers: { 
-        'Content-Type': 'application/json', 
-        'Authorization': `Basic ${Buffer.from(`${accountSID}:${authToken}`).toString('base64')}` 
-      } 
-    });
-    const response = result.data;
+    const response = await client.httpClient.request({
+      method: 'GET',
+      uri: contentAPIUrl,
+      username: accountSID,
+      password: authToken,
+      headers: {}, // header is needed to avoid 401 error
+    })
 
     let map2 = {};
-    response.contents.forEach(content => { 
-      map2[content.friendly_name] = content.sid 
-    });
+
+    if( response.statusCode > 299 ) {
+      console.log(`Fetching Content API failed with ${response.statusCode}: ${JSON.stringify(response.body)}`);
+    } else {
+      response.body.contents.forEach(content => { 
+        map2[content.friendly_name] = content.sid 
+      });
+    }
     return map2
+
   } catch(error) { 
     logError(error);
     return {};
@@ -107,6 +117,7 @@ async function sendContentAPIMessage(contentFriendlyName, context, event) {
   
   const contentsSID = contents[contentFriendlyName];
 
+  const client = context.getTwilioClient();
   const accountSID = context.ACCOUNT_SID;
   const authToken = context.AUTH_TOKEN;
   const messageCreateUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSID}/Messages.json`;
@@ -124,17 +135,34 @@ async function sendContentAPIMessage(contentFriendlyName, context, event) {
     'ContentVariables': JSON.stringify(contentVariables)
   }
 
-  const url = require('url');
-  const data = new url.URLSearchParams(params);
+  // const url = require('url');
+  // const data = new url.URLSearchParams(params);
   try {
-    const result = await axios.post(messageCreateUrl, data.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${Buffer.from(`${accountSID}:${authToken}`).toString('base64')}` } });
-    const response = result.data;
-    console.log('data: ' + JSON.stringify(response, null, 2));
-    return '';
+
+    const response = await client.httpClient.request({
+      method: 'POST',
+      uri: messageCreateUrl,
+      data: params,
+      username: accountSID,
+      password: authToken,
+      headers: {"Content-Type":"application/x-www-form-urlencoded"},
+    })
+
+    // const result = await axios.post(messageCreateUrl, data.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': `Basic ${Buffer.from(`${accountSID}:${authToken}`).toString('base64')}` } });
+    // const response = result.data;
+
+    //Guard for error case
+    if( response.statusCode > 299 ) {
+      console.log(`Sending Message with Content API failed with ${response.statusCode}: ${JSON.stringify(response.body)}`);
+      console.log('params: ' + JSON.stringify(params, null, 2));
+      return 'Error whilst sending message (Content API) - check logs';
+    }
+    console.log('data: ' + JSON.stringify(response.body, null, 2));
+    return null;
   }
   catch(error) {
     logError(error);
-    return 'Error whilst creating message';
+    return 'Error whilst sending message (Content API) - check logs';
     //console.log(error.config);
   }  
 }
