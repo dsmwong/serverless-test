@@ -10,12 +10,16 @@ exports.handler = async function(context, event, callback) {
   const searchPeriod = event.SearchPeriodInSec || 30;
   const type = event.Type || 'calls';
 
+  const startTimeKey = event.Type === 'calls' ? 'startTimeAfter' : 'dateSentAfter';
+
   const now = new Date();
   const searchStart = new Date(now.getTime() - searchPeriod * 1000);
 
   const client = context.getTwilioClient();
+  const parameters = {to: to, from: from, [startTimeKey]: searchStart};
+  console.log(`Searching for ${type} with parameters ${JSON.stringify(parameters)}`);
 
-  const interactions = await client[type].list({to: to, from: from, startTimeAfter: searchStart});
+  const interactions = await client[type].list({to: to, from: from, [startTimeKey]: searchStart});
 
   console.log(`Found ${interactions.length} interactions of type ${type}`);
   if( interactions.length > 0 ) {
